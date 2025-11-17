@@ -1,0 +1,182 @@
+## Design Mental Model
+### File: ./26_cache_controller.sv
+
+### SUMMARY
+
+#### Module Instantiation Hierarchy:
+- cache_controller
+
+#### Module Summary Table:
+| Module | Summary |
+|--------|---------|
+| cache_controller (Top Level) | The "cache_controller" RTL module is designed to manage the interaction between a CPU and a cache memory system. Its primary functionality is to handle cache read and write operations, determine cache hits and misses, and manage data consistency by writing back dirty cache lines to main memory when necessary. |
+
+### Clock Ports
+|Name|Description|
+|---|---|
+|clk|<br> **Clock active edge:** posedge|
+
+### Reset Ports
+|Name|Description|
+|---|---|
+|reset|<br> **Reset polarity:** active-high|
+
+### Input Ports
+|Name|Description|
+|---|---|
+|cpu_address|**Type:** `logic[31:0]`.<br><br> 
+**Purpose**: The `cpu_address` port is used to specify the memory address for read or write operations initiated by the CPU.<br><br>
+**Interaction**: Users or other modules interact with the `cpu_address` port by providing a 32-bit address value. This address is used to access specific data within the cache or to determine if a cache miss occurs.<br><br>
+**Expected Behavior**:<br>&nbsp;&nbsp;- When a read operation is initiated (`cpu_read` is asserted), the `cpu_address` is used to check if the data is present in the cache. If the data is found (cache hit), it is retrieved and provided on `cpu_data_out`.<br>&nbsp;&nbsp;- During a write operation (`cpu_write` is asserted), the `cpu_address` specifies where the new data (`cpu_data_in`) should be stored in the cache.<br>&nbsp;&nbsp;- The address is broken down into a tag and index to locate the corresponding cache line.<br><br>
+**Interesting Behavior**:<br>&nbsp;&nbsp;- If the `cpu_address` corresponds to a cache line that is valid and has a matching tag, a cache hit occurs, and the data is quickly accessed.<br>&nbsp;&nbsp;- In the event of a cache miss, the `cpu_address` helps determine if the cache line is dirty, necessitating a write-back to memory before loading new data.<br>&nbsp;&nbsp;- The `cpu_address` plays a crucial role in reconstructing the full address for write-back operations when a dirty cache line is encountered.|
+|cpu_data_in|**Type:** `logic[31:0]`.<br><br> **Purpose**: The `cpu_data_in` port is used to provide data from the CPU to the cache controller for write operations.<br><br>**Interaction**: Users or other modules interact with the `cpu_data_in` port by supplying a 32-bit data value that needs to be written to the cache. This interaction occurs when the `cpu_write` signal is asserted, indicating a write operation.<br><br>**Expected Behavior**:<br>&nbsp;&nbsp;- When `cpu_write` is asserted, the value on `cpu_data_in` is written to the cache line at the index derived from `cpu_address`.<br>&nbsp;&nbsp;- The cache line is updated with the new data, and the line is marked as dirty to indicate it has been modified.<br>&nbsp;&nbsp;- For example, if `cpu_data_in` is set to `32'hA5A5A5A5` and `cpu_write` is asserted, the cache line corresponding to the `cpu_address` will store `32'hA5A5A5A5`.<br><br>**Interesting Behavior**:<br>&nbsp;&nbsp;- If the cache line being written to was previously valid and dirty, the old data may need to be written back to memory before the new data from `cpu_data_in` is stored.<br>&nbsp;&nbsp;- The `cpu_data_in` port is only relevant during write operations; it does not affect read operations.|
+|cpu_read|**Type:** `logic`.<br><br> **Purpose**: The `cpu_read` port is used to initiate a read operation from the cache by the CPU.<br><br>**Interaction**: Users or other modules assert the `cpu_read` signal to request data from the cache. This signal is typically driven by the CPU or a memory controller.<br><br>**Expected Behavior**:<br>&nbsp;&nbsp;- When `cpu_read` is asserted (set to 1), the cache controller checks if the requested data, specified by `cpu_address`, is available in the cache.<br>&nbsp;&nbsp;- If the data is present and valid (cache hit), `cpu_data_out` is set to the cached data, and `cache_hit` is asserted.<br>&nbsp;&nbsp;- If the data is not present or valid (cache miss), the cache controller may initiate a write-back if the cache line is dirty, using `cache_address` and `cache_data_in`, and then load new data from `cache_data_out`.<br>&nbsp;&nbsp;- During a read operation, `cache_read` is asserted to indicate that the cache is being accessed for reading.<br><br>**Interesting Behavior**:<br>&nbsp;&nbsp;- If a cache miss occurs and the cache line is dirty, the controller performs a write-back operation before loading new data, ensuring data consistency.<br>&nbsp;&nbsp;- The `cpu_read` signal, when asserted, triggers a sequence of checks and potential memory operations, highlighting the complexity of cache management in handling hits and misses.|
+|cpu_write|**Type:** `logic`.<br><br> **Purpose**: The `cpu_write` port is used to initiate a write operation from the CPU to the cache.<br><br>**Interaction**: Users or other modules assert the `cpu_write` signal to indicate that the CPU intends to write data to the cache at the address specified by `cpu_address`.<br><br>**Expected Behavior**:<br>&nbsp;&nbsp;- When `cpu_write` is asserted, the cache controller updates the cache line at the index derived from `cpu_address` with the data provided on `cpu_data_in`.<br>&nbsp;&nbsp;- The cache line's tag is set using the tag portion of `cpu_address`.<br>&nbsp;&nbsp;- The cache line is marked as valid and dirty, indicating that it has been modified.<br>&nbsp;&nbsp;- If the cache line was previously valid and dirty, the old data may need to be written back to memory, which involves setting `cache_address` and `cache_data_in` and asserting `cache_write`.<br><br>**Interesting Behavior**:<br>&nbsp;&nbsp;- If a write operation occurs on a cache line that is already valid and dirty, the cache controller prepares to write back the old data to memory before updating the cache line with new data. This ensures data consistency between the cache and main memory.|
+|cache_data_out|**Type:** `logic[31:0]`.<br><br> **Purpose**: The `cache_data_out` port serves as the data output from the cache to the cache controller, providing the data that needs to be loaded into the cache line during a cache miss.<br><br>**Interaction**: Users or other modules interact with the `cache_data_out` port by supplying data from the main memory or another source when the cache controller requests it during a cache miss. This data is then used to update the cache line.<br><br>**Expected Behavior**:<br>&nbsp;&nbsp;- When a cache miss occurs, and the cache line is not valid or the tag does not match, the cache controller will load new data from `cache_data_out` into the cache line.<br>&nbsp;&nbsp;- For example, if the CPU requests data at an address that results in a cache miss, the data provided on `cache_data_out` will be stored in the cache line corresponding to the requested address.<br><br>**Interesting Behavior**:<br>&nbsp;&nbsp;- The `cache_data_out` port is crucial during cache miss handling, as it directly influences the data that gets loaded into the cache. The correctness and timeliness of the data on this port can significantly impact the performance and accuracy of the cache operations.<br>&nbsp;&nbsp;- In scenarios where multiple cache misses occur in quick succession, the data on `cache_data_out` must be updated promptly to ensure that the cache controller can efficiently handle each miss.|
+
+### Output Ports
+|Name|Description|
+|---|---|
+|cpu_data_out|**Type:** `reg[31:0]`.<br><br> **Purpose**: The purpose of the `cpu_data_out` port is to provide the CPU with the data retrieved from the cache during a read operation.<br><br>**Interaction**: Users or other modules interact with the `cpu_data_out` port by initiating a read operation through the `cpu_read` signal. When a read request is made, the data from the cache line corresponding to the requested address is output through this port.<br><br>**Expected Behavior**:<br>&nbsp;&nbsp;- **Reset Value**: Upon reset, `cpu_data_out` = 0.<br>&nbsp;&nbsp;- When `cpu_read` is asserted and a cache hit occurs (i.e., the cache line is valid and the tag matches), `cpu_data_out` outputs the data from the cache line corresponding to the `cpu_address`.<br>&nbsp;&nbsp;- If a cache miss occurs, `cpu_data_out` does not immediately provide valid data from the cache, as the data needs to be fetched from memory or another source.<br><br>**Interesting Behavior**:<br>&nbsp;&nbsp;- During a cache hit, `cpu_data_out` provides immediate access to the requested data, ensuring fast data retrieval for the CPU.<br>&nbsp;&nbsp;- In the event of a cache miss, `cpu_data_out` remains unchanged until the new data is loaded into the cache, highlighting the latency involved in fetching data from memory.|
+|cache_hit|**Type:** `reg`.<br><br> **Purpose**: The `cache_hit` port indicates whether the requested data from the CPU is present in the cache.<br><br>**Interaction**: Users or other modules monitor the `cache_hit` signal to determine if a read request from the CPU results in a cache hit or miss. This signal helps in deciding whether to fetch data from the cache or to initiate a memory access.<br><br>**Expected Behavior**:<br>&nbsp;&nbsp;- **Reset Value**: Upon reset, `cache_hit` = 0.<br>&nbsp;&nbsp;- When `cpu_read` is asserted:<br>&nbsp;&nbsp;&nbsp;&nbsp;  - If the cache line corresponding to `cpu_address` is valid and the tag matches, `cache_hit` is set to 1, indicating a cache hit.<br>&nbsp;&nbsp;&nbsp;&nbsp;  - If the cache line is invalid or the tag does not match, `cache_hit` is set to 0, indicating a cache miss.<br><br>**Interesting Behavior**:<br>&nbsp;&nbsp;- `cache_hit` transitions from 0 to 1 when a previously missed address is loaded into the cache and subsequently accessed again, demonstrating the cache's ability to store and quickly retrieve frequently accessed data.|
+|cache_address|**Type:** `reg[31:0]`.<br><br> **Purpose**: The `cache_address` port is used to specify the address in main memory for read or write operations, particularly during cache misses or when writing back dirty cache lines.<br><br>**Interaction**: Users or other modules interact with the `cache_address` port by observing its value to determine which memory address is being accessed for data retrieval or storage during cache operations.<br><br>**Expected Behavior**:<br>&nbsp;&nbsp;- **Reset Value**: Upon reset, `cache_address` = 0.<br>&nbsp;&nbsp;- During a cache miss with a dirty line, `cache_address` is set to the reconstructed full address using the tag and index of the cache line being replaced. This address is used to write back the dirty data to main memory.<br>&nbsp;&nbsp;- When loading new data into the cache after a miss, `cache_address` may be used to specify the address from which data should be fetched from main memory.<br><br>**Interesting Behavior**:<br>&nbsp;&nbsp;- The `cache_address` port is particularly important during cache miss scenarios where the cache line is dirty, as it ensures that the correct address is targeted for writing back modified data to main memory before new data is loaded into the cache.|
+|cache_data_in|**Type:** `reg[31:0]`.<br><br> **Purpose**: The purpose of the `cache_data_in` port is to hold data that is to be written back to the main memory from the cache during a cache miss with a dirty line.<br><br>**Interaction**: Users or other modules interact with the `cache_data_in` port by observing its value when a cache miss occurs and the cache line is dirty. This port is used to transfer the data from the cache to the main memory.<br><br>**Expected Behavior**:<br>&nbsp;&nbsp;- **Reset Value**: Upon reset, `cache_data_in` = 0.<br>&nbsp;&nbsp;- During a cache miss with a dirty line, `cache_data_in` is set to the data from the cache line that needs to be written back to the main memory.<br>&nbsp;&nbsp;- When `cpu_read` is asserted and a cache miss with a dirty line is detected, `cache_data_in` holds the data from the cache line that is being replaced.<br><br>**Interesting Behavior**:<br>&nbsp;&nbsp;- `cache_data_in` is only relevant during cache miss scenarios where the cache line is dirty, indicating that the data has been modified since it was loaded from memory.<br>&nbsp;&nbsp;- The value of `cache_data_in` is crucial for ensuring data consistency between the cache and main memory, as it facilitates the write-back of modified data before new data is loaded into the cache.|
+|cache_read|**Type:** `reg`.<br><br> **Purpose**: The `cache_read` port is used to signal when a read operation is being performed on the cache.<br><br>**Interaction**: Users or other modules interact with the `cache_read` port by monitoring its state to determine when the cache is actively engaged in a read operation. This port is controlled internally by the cache controller logic.<br><br>**Expected Behavior**:<br>&nbsp;&nbsp;- When `cpu_read` is asserted, indicating a read request from the CPU, `cache_read` is set to 1 to initiate a read operation from the cache.<br>&nbsp;&nbsp;- If the cache line corresponding to the `cpu_address` is valid and the tag matches, `cache_read` remains active as the data is retrieved from the cache.<br>&nbsp;&nbsp;- In the event of a cache miss, `cache_read` remains active while the cache controller manages the retrieval of data from the main memory or other sources.<br>&nbsp;&nbsp;- Reset Value: Upon reset, `cache_read` = 0, indicating no read operation is in progress.<br><br>**Interesting Behavior**:<br>&nbsp;&nbsp;- `cache_read` is only asserted during read operations initiated by the CPU, and it remains active throughout the process of handling cache hits or misses.<br>&nbsp;&nbsp;- The port does not differentiate between cache hits and misses; it simply indicates that a read operation is underway.|
+|cache_write|**Type:** `reg`.<br><br> **Purpose**: The `cache_write` port is used to signal when data from the cache should be written back to the main memory, particularly during cache miss scenarios involving dirty cache lines.<br><br>**Interaction**: Users or other modules interact with the `cache_write` port by monitoring its signal to determine when a write-back operation to the main memory is required. This interaction is typically managed by the cache controller logic based on cache coherence protocols.<br><br>**Expected Behavior**:<br>&nbsp;&nbsp;- **Reset Value**: Upon reset, `cache_write` = 0.<br>&nbsp;&nbsp;- When a cache miss occurs and the cache line to be replaced is dirty, `cache_write` is asserted (set to 1) to initiate the write-back of the dirty data to the main memory.<br>&nbsp;&nbsp;- During normal operation, if the cache line is not dirty or if there is no cache miss, `cache_write` remains deasserted (0).<br><br>**Interesting Behavior**:<br>&nbsp;&nbsp;- The `cache_write` port is specifically involved in maintaining data consistency between the cache and main memory. It is only asserted when necessary, such as during a cache miss with a dirty line, ensuring efficient memory operations and minimizing unnecessary write-backs.|
+
+### Design Parameters
+|Name|Description|
+|---|---|
+|CACHE_SIZE|**Type:** `logic`.<br><br> **Purpose of the Parameter**:  <br>`CACHE_SIZE` defines the total number of cache lines available in the cache controller. It determines the capacity of the cache to store data temporarily for quick access by the CPU. A larger `CACHE_SIZE` allows more data to be stored, potentially reducing the frequency of cache misses and improving performance. Users interact with the design by providing addresses and data through `cpu_address` and `cpu_data_in`, and the cache controller uses `CACHE_SIZE` to manage how these addresses map to specific cache lines. For example, with a larger `CACHE_SIZE`, the cache can accommodate more unique addresses, which can be beneficial in applications with large datasets.|
+|WORD_SIZE|**Type:** `logic`.<br><br> **Purpose of the Parameter**:  <br>The `WORD_SIZE` parameter defines the bit-width of each data word stored in the cache. It determines the size of the data that can be read from or written to the cache in a single operation. This parameter is crucial for aligning the cache's data handling capabilities with the CPU's data processing requirements. By configuring `WORD_SIZE`, users can ensure that the cache efficiently supports the CPU's data transactions, facilitating seamless data exchange between the CPU and the cache.|
+
+### Basic Functionality
+|Function|Description|
+|---|---|
+|Cache Read Operation||
+|Cache Write Operation||
+|Cache Miss Handling with Dirty Line Write-back||
+
+### End-to-End Functionality
+|Function|Description|
+|---|---|
+|Cache Read with Miss and Clean Line Replacement|This function handles the scenario where a read request from the CPU results in a cache miss, and the cache line to be replaced is clean. The process begins by setting `cpu_read` to 1 and providing the `cpu_address`. If the cache line is not valid or the tag does not match, a cache miss is identified, and `cache_hit` is set to 0. To fetch the required data from memory, `cache_read` is set to 1, and `cache_address` is set to the `cpu_address`. Once the data is loaded from memory, `cpu_data_out` is updated with the data from `cache_data_out`. The cache line is then updated with the new tag and data, and it is marked as valid. This operation spans multiple clock cycles, with data becoming available after the memory fetch is complete.|
+|Cache Write with Dirty Line Replacement|This function manages the process of handling a write request from the CPU that results in a cache miss, where the cache line to be replaced is dirty. The operation starts by setting `cpu_write` to 1 and providing both `cpu_address` and `cpu_data_in`. If the cache line is valid but the tag does not match, a cache miss occurs, and `cache_hit` is set to 0. If the cache line is dirty, `cache_write` is set to 1 to initiate a write-back to memory. The `cache_address` is set to the address of the dirty line, and `cache_data_in` is set to the data of the dirty line for the write-back operation. After the write-back is completed, the cache line is updated with the new tag and `cpu_data_in`, and it is marked as valid and dirty. This operation also spans multiple clock cycles, involving both write-back and update operations.|
+
+
+
+module cache_controller #(// Cache configuration parameters
+parameter CACHE_SIZE = 256, // Number of cache lines
+parameter WORD_SIZE = 32   // Word size in bits
+)(
+    // Inputs/Outputs for interfacing with CPU and main memory
+    input clk, 
+    input reset, 
+    input [31:0] cpu_address, 
+    input [31:0] cpu_data_in, 
+    input cpu_read, 
+    input cpu_write, 
+    output reg [31:0] cpu_data_out, 
+    output reg cache_hit, 
+    output reg [31:0] cache_address, 
+    output reg [31:0] cache_data_in, 
+    input [31:0] cache_data_out, 
+    output reg cache_read, 
+    output reg cache_write
+);
+
+
+// Cache line structure
+typedef struct {
+    reg valid;
+    reg dirty;
+    reg [21:0] tag;
+    reg [WORD_SIZE-1:0] data;
+} cache_line_t;
+
+
+// Cache memory declaration
+cache_line_t cache [0:CACHE_SIZE-1];
+
+// Address breakdown for cache indexing
+wire [21:0] tag = cpu_address[31:10]; // Extract tag from address
+wire [7:0] index = cpu_address[9:2];  // Extract index from address
+
+integer i;
+
+// Cache controller logic
+always @(posedge clk) begin
+    if (reset) begin
+        for (i = 0; i < CACHE_SIZE; i = i + 1) begin
+            cache[i].valid = 0;
+            cache[i].tag = 0;
+            cache[i].data = 0;
+            cache[i].dirty = 0; // Reset dirty bit
+        end
+        cpu_data_out = 0; 
+        cache_hit = 0; 
+        cache_address = 0; 
+        cache_data_in = 0; 
+        cache_read = 0; 
+        cache_write = 0;    
+     end
+    else begin
+        // Cache read operation
+        if (cpu_read) begin
+            cache_read = 1;  // Set cache_read when a read operation is performed
+            if (cache[index].valid && cache[index].tag == tag) begin
+                // Cache hit
+                cache_hit = 1;
+                cpu_data_out = cache[index].data;
+            end else begin
+                // Cache miss
+                cache_hit = 0;
+                if (cache[index].valid && cache[index].dirty) begin
+                    // Write back dirty cache line to memory
+                    cache_address = {cache[index].tag, index}; // Reconstruct full address
+                    cache_data_in = cache[index].data;
+                    cache_write = 1;
+                end
+                // Load new data into cache
+                cache[index].valid = 1;
+                cache[index].tag = tag;
+                cache[index].data = cache_data_out;
+                cache[index].dirty = 0; // Reset dirty bit
+            end
+        end
+        // Cache write operation
+        if (cpu_write) begin
+            cache[index].data = cpu_data_in;
+            cache[index].valid = 1;
+            cache[index].tag = tag;
+            cache[index].dirty = 1; // Set dirty bit
+        end
+    end
+end
+
+endmodule
+
+
+
+## Formal Unit Test Scenarios
+### File: ./26_cache_controller.sv
+
+|Name|Description|Type|
+|---|---|---|
+|Cache Hit Scenario|Cover that: `cpu_read` is asserted, `cache_hit` is set to 1 after one clock cycle, `cpu_data_out` reflects the correct data after one clock cycle.|cover|
+|Cache Miss with Clean Line|Cover that: `cpu_read` is asserted, `cache_hit` is set to 0 after one clock cycle, `cache_read` is asserted eventually, `cache_data_out` provides data eventually, `cpu_data_out` reflects the correct data eventually.|cover|
+|Cache Miss with Dirty Line|Cover that: `cpu_read` is asserted, `cache_hit` is set to 0 after one clock cycle, `cache_write` is asserted eventually, `cache_address` and `cache_data_in` hold the correct values for the dirty line eventually, `cache_read` is asserted eventually, `cache_data_out` provides data eventually, `cpu_data_out` reflects the correct data eventually.|cover|
+|Write Operation with Dirty Line|Cover that: `cpu_write` is asserted, `cache_write` remains 0, `cache_data_in` is updated with `cpu_data_in` after one clock cycle, the dirty bit for the cache line is set eventually.|cover|
+|Stability of Address During Operations|Assume that If: `cpu_read` is asserted or `cpu_write` is asserted, then: `cpu_address` should remain stable on the same clock cycle. Explain why this assumption is needed: This constraint ensures that the address does not change unexpectedly during an operation, which could lead to undefined behavior.|assumption|
+|Unified Reset Scenario|The single SVA property should verify that when the 'reset' signal transitions from '1' to '0', all output signals ('cpu_data_out', 'cache_hit', 'cache_address', 'cache_data_in', 'cache_read', 'cache_write') are set to '0' on the same clock cycle.|assertion|
+|cacheHitImpliesMemAccess|When there is a cache hit, it must imply that a cache read or write operation occurred in the previous cycle.  |assertion|
+|cacheMissImpliesMemRead|When the CPU performs a read operation and there is no cache hit, it must result in a memory read operation.  <br>|assertion|
+|cpuWriteRequiresValidData|During a CPU write operation, the input data must not be unknown.  <br>|assertion|
+|cpuReadRequiresValidData|During a CPU read operation, the output data must not be unknown.  <br>|assertion|
+|cpuAccessRequiresValidAddress|When the CPU performs a read or write operation, the address must not be unknown.  <br>|assertion|
+|cacheAccessRequiresValidHitSignal|When the CPU performs a read or write operation, the cache hit signal must not be unknown.  <br>|assertion|
+|memAccessRequiresValidAddress|When a cache read or cache write operation is happening, the cache address must not be unknown.  <br> |assertion|
+|memReadRequiresValidData|During a cache read operation (cache_read==1), the input cache data must not be unknown (in the same cycle).  <br>|assertion|
+|memWriteRequiresValidData|During a cache write operation (cache_write==1), the output data (cache_data_out)must not be unknown.  <br>|assertion|
+|memWriteRequiresValidAddress|During a cache write operation, the cache address must not be unknown.  <br>|assertion|
+|cpuReadRequiresValidOutput|During a CPU read operation, the output data must not be unknown.  <br>|assertion|
