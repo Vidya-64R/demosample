@@ -3,7 +3,7 @@
 -- Engineer: 
 -- 
 -- Create Date: 03/12/2023 05:07:33 PM
--- Design Name: 
+-- Design Name: vidya
 -- Module Name: testbench_txrx - Behavioral
 -- Project Name: 
 -- Target Devices: 
